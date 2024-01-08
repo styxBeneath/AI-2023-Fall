@@ -1,5 +1,6 @@
 import nn
 
+
 class PerceptronModel(object):
     def __init__(self, dimensions):
         """
@@ -27,6 +28,7 @@ class PerceptronModel(object):
         Returns: a node containing a single number (the score)
         """
         "*** YOUR CODE HERE ***"
+        return nn.DotProduct(self.get_weights(), x)
 
     def get_prediction(self, x):
         """
@@ -35,12 +37,26 @@ class PerceptronModel(object):
         Returns: 1 or -1
         """
         "*** YOUR CODE HERE ***"
+        dot_product = nn.as_scalar(self.run(x))
+        return 1.0 if dot_product >= 0 else -1.0
 
     def train(self, dataset):
         """
         Train the perceptron until convergence.
         """
         "*** YOUR CODE HERE ***"
+        converged = False
+        while not converged:
+            converged = True
+
+            for x, y in dataset.iterate_once(1):
+                y_star = self.get_prediction(x)
+                y = nn.as_scalar(y)
+
+                if y_star != y:
+                    converged = False
+                    self.w.update(x, y)
+
 
 class RegressionModel(object):
     """
@@ -48,9 +64,25 @@ class RegressionModel(object):
     numbers to real numbers. The network should be sufficiently large to be able
     to approximate sin(x) on the interval [-2pi, 2pi] to reasonable precision.
     """
+
     def __init__(self):
         # Initialize your model parameters here
         "*** YOUR CODE HERE ***"
+        self.network_weights = []
+        self.network_biases = []
+
+        self.feature_num = 1
+        self.output_size = 1
+        self.learning_rate = -0.08
+        self.batch_size = 20
+
+        self.layer_sizes = [10, 15, self.output_size]
+        self.layer_num = len(self.layer_sizes)
+
+        self.network_weights = [nn.Parameter(self.feature_num if i == 0 else self.layer_sizes[i - 1], size)
+                                for i, size in enumerate(self.layer_sizes)]
+
+        self.network_biases = [nn.Parameter(1, size) for size in self.layer_sizes]
 
     def run(self, x):
         """
@@ -62,6 +94,12 @@ class RegressionModel(object):
             A node with shape (batch_size x 1) containing predicted y-values
         """
         "*** YOUR CODE HERE ***"
+        for i in range(self.layer_num):
+            layer_weights = self.network_weights[i]
+            layer_biases = self.network_biases[i]
+            x = nn.ReLU(nn.AddBias(nn.Linear(x, layer_weights), layer_biases))
+
+        return x
 
     def get_loss(self, x, y):
         """
@@ -74,12 +112,29 @@ class RegressionModel(object):
         Returns: a loss node
         """
         "*** YOUR CODE HERE ***"
+        return nn.SquareLoss(self.run(x), y)
 
     def train(self, dataset):
         """
         Trains the model.
         """
         "*** YOUR CODE HERE ***"
+        total_loss = float('inf')
+
+        while total_loss > 0.02:
+            total_loss = 0.0
+
+            for x, y in dataset.iterate_once(self.batch_size):
+                curr_loss = self.get_loss(x, y)
+                grad = nn.gradients(curr_loss, self.network_weights + self.network_biases)
+
+                for i, param in enumerate(self.network_weights + self.network_biases):
+                    param.update(grad[i], -self.learning_rate)
+
+                total_loss += nn.as_scalar(curr_loss)
+
+            total_loss /= len(dataset)
+
 
 class DigitClassificationModel(object):
     """
@@ -95,9 +150,25 @@ class DigitClassificationModel(object):
     methods here. We recommend that you implement the RegressionModel before
     working on this part of the project.)
     """
+
     def __init__(self):
         # Initialize your model parameters here
         "*** YOUR CODE HERE ***"
+        self.network_weights = []
+        self.network_biases = []
+
+        self.feature_num = 784
+        self.batch_size = 200
+        self.learning_rate = -0.525
+        self.output_size = 10
+
+        self.layer_sizes = [220, 150, self.output_size]
+        self.layer_num = len(self.layer_sizes)
+
+        self.network_weights = [nn.Parameter(self.feature_num if i == 0 else self.layer_sizes[i - 1], size)
+                                for i, size in enumerate(self.layer_sizes)]
+
+        self.network_biases = [nn.Parameter(1, size) for size in self.layer_sizes]
 
     def run(self, x):
         """
@@ -114,6 +185,18 @@ class DigitClassificationModel(object):
                 (also called logits)
         """
         "*** YOUR CODE HERE ***"
+        predictions = x
+
+        for i in range(self.layer_num):
+            l_weights = self.network_weights[i]
+            l_biases = self.network_biases[i]
+
+            xw = nn.Linear(predictions, l_weights)
+
+            predictions = nn.AddBias(xw, l_biases)
+            predictions = nn.ReLU(predictions)
+
+        return predictions
 
     def get_loss(self, x, y):
         """
@@ -129,12 +212,32 @@ class DigitClassificationModel(object):
         Returns: a loss node
         """
         "*** YOUR CODE HERE ***"
+        return nn.SoftmaxLoss(self.run(x), y)
 
     def train(self, dataset):
         """
         Trains the model.
         """
         "*** YOUR CODE HERE ***"
+        while True:
+            for x, y in dataset.iterate_once(self.batch_size):
+                current_loss = self.get_loss(x, y)
+                parameters = []
+
+                for i in range(self.layer_num):
+                    parameters.append(self.network_weights[i])
+                    parameters.append(self.network_biases[i])
+
+                grad = nn.gradients(current_loss, parameters)
+
+                for i in range(self.layer_num):
+                    self.network_weights[i].update(grad[2 * i], self.learning_rate)
+                    self.network_biases[i].update(grad[2 * i + 1], self.learning_rate)
+
+            desired_accuracy = dataset.get_validation_accuracy()
+            if desired_accuracy >= 0.975:
+                break
+
 
 class LanguageIDModel(object):
     """
@@ -144,6 +247,7 @@ class LanguageIDModel(object):
     methods here. We recommend that you implement the RegressionModel before
     working on this part of the project.)
     """
+
     def __init__(self):
         # Our dataset contains words from five different languages, and the
         # combined alphabets of the five languages contain a total of 47 unique
@@ -154,6 +258,26 @@ class LanguageIDModel(object):
 
         # Initialize your model parameters here
         "*** YOUR CODE HERE ***"
+        self.network_weights = []
+        self.network_biases = []
+
+        self.feature_num = self.num_chars
+        self.learning_rate = -0.05
+        self.batch_size = 30
+
+        self.output_size = len(self.languages)
+        self.layer_sizes = [250, 250, self.output_size]
+        self.layer_num = len(self.layer_sizes)
+
+        for i in range(self.layer_num):
+            feature_num = self.feature_num if i == 0 else self.layer_sizes[i - 1]
+            l_size = self.layer_sizes[i]
+
+            l_weights = nn.Parameter(feature_num, l_size)
+            l_biases = nn.Parameter(1, l_size)
+
+            self.network_weights.append(l_weights)
+            self.network_biases.append(l_biases)
 
     def run(self, xs):
         """
@@ -185,6 +309,22 @@ class LanguageIDModel(object):
                 (also called logits)
         """
         "*** YOUR CODE HERE ***"
+        current_prediction = self.getInitialPrediction(xs[0])
+        current_prediction = nn.ReLU(current_prediction)
+
+        for x in xs[1:]:
+            initial_prediction = self.getInitialPrediction(x)
+            current_prediction = nn.Add(initial_prediction, nn.Linear(current_prediction, self.network_weights[1]))
+            current_prediction = nn.ReLU(current_prediction)
+
+        return nn.Linear(current_prediction, self.network_weights[2])
+
+    def getInitialPrediction(self, x):
+        layer_weights = self.network_weights[0]
+        layer_biases = self.network_biases[0]
+        xw = nn.Linear(x, layer_weights)
+        predictions = nn.AddBias(xw, layer_biases)
+        return predictions
 
     def get_loss(self, xs, y):
         """
@@ -201,9 +341,26 @@ class LanguageIDModel(object):
         Returns: a loss node
         """
         "*** YOUR CODE HERE ***"
+        return nn.SoftmaxLoss(self.run(xs), y)
 
     def train(self, dataset):
         """
         Trains the model.
         """
         "*** YOUR CODE HERE ***"
+        while True:
+            for x, y in dataset.iterate_once(self.batch_size):
+                current_loss = self.get_loss(x, y)
+                parameters = []
+
+                for i in range(self.layer_num):
+                    parameters.append(self.network_weights[i])
+
+                grad = nn.gradients(current_loss, parameters)
+
+                for i in range(self.layer_num):
+                    self.network_weights[i].update(grad[i], self.learning_rate)
+
+            target_accuracy = dataset.get_validation_accuracy()
+            if target_accuracy >= 0.87:
+                break
